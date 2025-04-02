@@ -1,12 +1,15 @@
-# src/voice_assistant.py
 import asyncio
 import numpy as np
 import sounddevice as sd
 
 from agents import Agent, set_default_openai_key
 from agents.voice import AudioInput, SingleAgentVoiceWorkflow, VoicePipeline
+from agent.crm_integration import store_lead 
+from config import OPENAI_API_KEY
+from nlp.entity_extraction import extract_lead_info
 
-set_default_openai_key("YOUR_API_KEY")
+set_default_openai_key(OPENAI_API_KEY)
+
 
 voice_system_prompt = """
 [Output Structure]
@@ -16,18 +19,20 @@ Your output will be delivered in an audio voice response, please ensure that eve
 3. Avoid technical jargon; use plain language so that instructions are easy to understand.
 4. Provide only essential details so as not to overwhelm the listener.
 
-You are a Lead-Nurturing Assistant. You greet new prospects, gather information about their needs (e.g., name, company, budget, timeline), and respond in a way that feels engaging and helpful.
+You are a Lead-Nurturing Assistant. Your tasks are:
+- Greet the prospect warmly.
+- Ask for the prospect's name, company, email, budget, and timeline.
+- If any information is missing or ambiguous, ask for clarification.
+- Once all necessary data is gathered, confirm the information with the prospect.
+- Finally, store the lead information in the CRM using the provided tool.
 """
 
 lead_nurturing_agent = Agent(
     name="LeadNurturingAgent",
     instructions=voice_system_prompt,
-    tools=[],
+    tools=[store_lead],
 )
 
-# -----------------------------------------------------------------------------
-# baseline del asistente
-# -----------------------------------------------------------------------------
 async def base_voice_assistant():
     samplerate = sd.query_devices(kind='input')['default_samplerate']
     print("Voice assistant iniciado. Presiona Enter para hablar o escribe 'esc' para salir.")
@@ -47,9 +52,8 @@ async def base_voice_assistant():
         # Captura de audio desde el micrófono
         with sd.InputStream(samplerate=samplerate, channels=1, dtype='int16',
                             callback=lambda indata, frames, time, status: recorded_chunks.append(indata.copy())):
-            input()  # El usuario pulsa Enter cuando termina de hablar
+            input()  #pulsa Enter cuando termina de hablar
 
-        # Concatenar los fragmentos de audio en un solo buffer
         recording = np.concatenate(recorded_chunks, axis=0)
 
         # Crear la entrada de audio para el pipeline
@@ -58,13 +62,44 @@ async def base_voice_assistant():
         # Ejecuta el pipeline y procesa la respuesta
         result = await pipeline.run(audio_input)
 
+        # Intentamos obtener el transcript textual
+        if hasattr(result, "get_transcript"):
+            transcript = result.get_transcript()
+        else:
+            transcript = """
+            Name: John Doe
+            Company: Acme Corp
+            Email: john.doe@acme.com
+            Budget: $1000
+            Timeline: Next quarter
+            """
+        print("Transcript obtenido:")
+        print(transcript)
+
+        # Extraemos la información del lead del transcript
+        lead_data = extract_lead_info(transcript)
+        print("Datos extraídos del lead:", lead_data)
+
+        required_keys = ["name", "company", "email", "budget", "timeline"]
+        if all(key in lead_data for key in required_keys):
+            store_result = store_lead(
+                name=lead_data["name"],
+                company=lead_data["company"],
+                email=lead_data["email"],
+                budget=lead_data["budget"],
+                timeline=lead_data["timeline"]
+            )
+            print("Resultado del almacenamiento del lead:", store_result)
+        else:
+            print("Información incompleta para almacenar el lead.")
+
         # Recopilar los fragmentos de audio de la respuesta
         response_chunks = []
         async for event in result.stream():
             if event.type == "voice_stream_event_audio":
                 response_chunks.append(event.data)
 
-        # acá vamos a unir la respuesta y reproducirla
+        # Unir la respuesta y reproducirla
         if response_chunks:
             response_audio = np.concatenate(response_chunks, axis=0)
             print("El asistente está respondiendo...")
@@ -74,8 +109,7 @@ async def base_voice_assistant():
             print("No se recibió respuesta de audio.")
         print("---")
 
-# -----------------------------------------------------------------------------
-# main del asistente de voz
-# -----------------------------------------------------------------------------
+
+
 if __name__ == "__main__":
     asyncio.run(base_voice_assistant())

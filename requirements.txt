@@ -1,3 +1,7 @@
 openai-agents[voice]   
 SpeechRecognition      
 gTTS              
+numpy
+sounddevice
+openai
+dotenv
