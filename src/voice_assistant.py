@@ -4,7 +4,7 @@ import sounddevice as sd
 
 from agents import Agent, set_default_openai_key
 from agents.voice import AudioInput, SingleAgentVoiceWorkflow, VoicePipeline
-from agent.crm_integration import store_lead 
+from agent.crm_integration import store_lead, _store_lead_in_crm
 from config import OPENAI_API_KEY
 from nlp.entity_extraction import extract_lead_info
 
@@ -27,12 +27,16 @@ You are a Lead-Nurturing Assistant. Your tasks are:
 - Finally, store the lead information in the CRM using the provided tool.
 """
 
+
 lead_nurturing_agent = Agent(
     name="LeadNurturingAgent",
     instructions=voice_system_prompt,
-    tools=[store_lead],
+    tools=[store_lead],  # Para que el agente pueda usar store_lead si hace function calling
 )
 
+# -----------------------------------------------------------------------------
+# BSELINE DEL ASISTENTE DE VOZ
+# -----------------------------------------------------------------------------
 async def base_voice_assistant():
     samplerate = sd.query_devices(kind='input')['default_samplerate']
     print("Voice assistant iniciado. Presiona Enter para hablar o escribe 'esc' para salir.")
@@ -52,17 +56,22 @@ async def base_voice_assistant():
         # Captura de audio desde el micrófono
         with sd.InputStream(samplerate=samplerate, channels=1, dtype='int16',
                             callback=lambda indata, frames, time, status: recorded_chunks.append(indata.copy())):
-            input()  #pulsa Enter cuando termina de hablar
+            input()  # Pulsa Enter cuando termines de hablar
 
+        if not recorded_chunks:
+            print("No se grabó audio. Intenta hablar antes de presionar Enter.")
+            continue
+
+        # Concatenar los fragmentos de audio en un solo buffer
         recording = np.concatenate(recorded_chunks, axis=0)
 
-        # Crear la entrada de audio para el pipeline
+        # Crear la entrada de audio para el pipeline (aquí se usará Whisper internamente)
         audio_input = AudioInput(buffer=recording)
 
         # Ejecuta el pipeline y procesa la respuesta
         result = await pipeline.run(audio_input)
 
-        # Intentamos obtener el transcript textual
+        # Intentamos obtener el transcript textual (generado por Whisper a través del SDK)
         if hasattr(result, "get_transcript"):
             transcript = result.get_transcript()
         else:
@@ -80,9 +89,11 @@ async def base_voice_assistant():
         lead_data = extract_lead_info(transcript)
         print("Datos extraídos del lead:", lead_data)
 
+        # Si se tienen todos los datos necesarios, se almacena el lead en el CRM
         required_keys = ["name", "company", "email", "budget", "timeline"]
         if all(key in lead_data for key in required_keys):
-            store_result = store_lead(
+            # Usamos la función pura
+            store_result = _store_lead_in_crm(
                 name=lead_data["name"],
                 company=lead_data["company"],
                 email=lead_data["email"],
@@ -93,7 +104,7 @@ async def base_voice_assistant():
         else:
             print("Información incompleta para almacenar el lead.")
 
-        # Recopilar los fragmentos de audio de la respuesta
+        # Recopilar los fragmentos de audio de la respuesta del agente
         response_chunks = []
         async for event in result.stream():
             if event.type == "voice_stream_event_audio":
@@ -108,6 +119,7 @@ async def base_voice_assistant():
         else:
             print("No se recibió respuesta de audio.")
         print("---")
+
 
 
 
