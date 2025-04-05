@@ -1,7 +1,8 @@
-openai-agents[voice]   
-SpeechRecognition      
-gTTS              
+openai-agents[voice]
 numpy
 sounddevice
 openai
-dotenv
+python-dotenv
+requests
+transformers
+PySimpleGUI
