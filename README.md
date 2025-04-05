@@ -97,8 +97,8 @@ The main structure of the repository is as follows:
    - Create a cache system and guardrails to prevent irrelevant conversations.  
    - Run large-scale tests to analyze agent behavior with big data queries. Add more specific prompts to guide users.
 
-**4. Interface: Simple**  
-   - Improve the interface :), please.
+**4. Interface and Data Base: Simple**  
+   - Improve the interface and data base(use better stack) :), please.
 
 **5. Testing:**  
    - Create more unit and integration tests.

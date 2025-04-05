@@ -5,7 +5,6 @@ import os
 import logging
 from typing import TypedDict
 
-
 from agents import (
     Agent,
     function_tool,
@@ -21,12 +20,16 @@ from agents.voice import (
     VoicePipelineConfig
 )
 from config import OPENAI_API_KEY  
+from agent.sqlite_db import init_db, async_insert_lead, async_update_lead_field, async_delete_lead_by_name, async_list_leads
 
 set_default_openai_key(OPENAI_API_KEY)  
 set_default_openai_api("chat_completions") 
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("VoiceAssistant")
+
+# Inicializamos la base de datos
+init_db()
 
 class LeadInfo(TypedDict):
     nombre: str
@@ -57,29 +60,80 @@ def extract_lead_info(text: str) -> LeadInfo:
 parse_lead_info = function_tool(extract_lead_info)
 
 @function_tool
-def update_crm(lead_info: LeadInfo) -> CRMResponse:
+async def update_crm(lead_info: LeadInfo) -> CRMResponse:
+    """Agrega un nuevo lead a la base de datos."""
     logger.info("Actualizando CRM con la siguiente información:")
     logger.info(lead_info)
-    return {"status": "success", "message": "La información del prospecto se actualizó correctamente."}
+    try:
+        await async_insert_lead(lead_info)
+        return {"status": "success", "message": "La información del prospecto se actualizó correctamente."}
+    except Exception as e:
+        logger.error("Error al actualizar el CRM: %s", e)
+        return {"status": "error", "message": "Error al actualizar la información del prospecto."}
+
+@function_tool
+async def update_lead_in_db(name: str, field: str, new_value: str) -> CRMResponse:
+    """
+    Actualiza un campo específico de un lead existente.
+    Por ejemplo: actualizar el campo 'empresa' del lead identificado por 'name'.
+    """
+    logger.info("Actualizando el lead '%s': campo '%s' -> '%s'", name, field, new_value)
+    try:
+        await async_update_lead_field(name, field, new_value)
+        return {"status": "success", "message": f"Lead '{name}' actualizado correctamente."}
+    except Exception as e:
+        logger.error("Error al actualizar el lead: %s", e)
+        return {"status": "error", "message": f"Error al actualizar el lead: {e}"}
+
+@function_tool
+async def delete_lead(name: str) -> CRMResponse:
+    """Elimina un lead de la base de datos según el nombre."""
+    logger.info("Eliminando el lead '%s'", name)
+    try:
+        await async_delete_lead_by_name(name)
+        return {"status": "success", "message": f"Lead '{name}' eliminado correctamente."}
+    except Exception as e:
+        logger.error("Error al eliminar el lead: %s", e)
+        return {"status": "error", "message": f"Error al eliminar el lead: {e}"}
+
+@function_tool
+async def list_all_leads() -> str:
+    """Devuelve un listado formateado de todos los leads almacenados."""
+    logger.info("Listando todos los leads")
+    try:
+        leads = await async_list_leads()
+        if leads:
+            response = "\n".join([f"{lead['nombre']} - {lead['empresa']} - {lead['necesidades']} - {lead['presupuesto']}" for lead in leads])
+        else:
+            response = "No hay leads guardados."
+        return response
+    except Exception as e:
+        logger.error("Error al listar los leads: %s", e)
+        return f"Error al listar los leads: {e}"
 
 lead_agent = Agent(
     name="LeadAgent",
     instructions=prompt_with_handoff_instructions("""
-Eres un asistente virtual para calificar leads. Recopila la información del prospecto y actualiza el CRM.
-Utiliza 'parse_lead_info' para extraer datos y 'update_crm' para actualizar la información.
+Eres un asistente virtual para calificar y gestionar leads.
+Recopila información y actualiza el CRM usando:
+- 'parse_lead_info' para extraer datos.
+- 'update_crm' para agregar nuevos leads.
+- 'update_lead_in_db' para modificar campos de un lead existente.
+- 'delete_lead' para eliminar un lead por nombre.
+- 'list_all_leads' para consultar los leads guardados.
 Mantén un tono profesional y amigable.
 """),
     model="gpt-4o",
-    tools=[parse_lead_info, update_crm],
+    tools=[parse_lead_info, update_crm, update_lead_in_db, delete_lead, list_all_leads],
     output_type=str,
 )
 
-# Config de TTS para una salida de voz natural
+# Configuración de TTS para una salida de voz natural
 tts_settings = TTSModelSettings(
     instructions="Personality: amigable y profesional. Tone: claro y empático. Pronunciation: clara y pausada. Tempo: fluido y un poco más lento. Emotion: cálido."
 )
 
-# func para capturar audio de forma asíncrona 
+# Función para capturar audio de forma asíncrona 
 async def capture_audio(samplerate: float) -> np.ndarray:
     loop = asyncio.get_running_loop()
     recorded_chunks = []
@@ -92,7 +146,6 @@ async def capture_audio(samplerate: float) -> np.ndarray:
     logger.info("Grabando... Por favor, habla ahora.")
     try:
         with sd.InputStream(samplerate=samplerate, channels=1, dtype='int16', callback=callback):
-            # Usamos run_in_executor para no bloquear el loop
             await loop.run_in_executor(None, input, "Presiona Enter para finalizar la grabación...\n")
     except Exception as e:
         logger.error(f"Error en la captura de audio: {e}")
@@ -130,21 +183,18 @@ async def voice_assistant():
 
         audio_input = AudioInput(buffer=audio_buffer)
 
-        # Ejecuta el pipeline de voz
         try:
             result = await pipeline.run(audio_input)
         except Exception as e:
             logger.error(f"Error durante la ejecución del pipeline: {e}")
             continue
 
-        # Recolecta y reproduce la respuesta de audio
         response_chunks = []
         try:
             async for event in result.stream():
                 if event.type == "voice_stream_event_audio":
                     response_chunks.append(event.data)
                 elif event.type == "voice_stream_event_lifecycle":
-                    # Se imprime el evento completo para evitar error al acceder a un atributo inexistente
                     logger.info(f"[lifecycle] {event}")
                 elif event.type == "voice_stream_event_error":
                     logger.error(f"[error] {event.data}")
