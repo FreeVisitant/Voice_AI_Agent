@@ -62,16 +62,11 @@ async def base_voice_assistant():
             print("No se grabó audio. Intenta hablar antes de presionar Enter.")
             continue
 
-        # Concatenar los fragmentos de audio en un solo buffer
         recording = np.concatenate(recorded_chunks, axis=0)
-
-        # Crear la entrada de audio para el pipeline (aquí se usará Whisper internamente)
         audio_input = AudioInput(buffer=recording)
 
-        # Ejecuta el pipeline y procesa la respuesta
+        # Executes the pipeline and processes the response        
         result = await pipeline.run(audio_input)
-
-        # Intentamos obtener el transcript textual (generado por Whisper a través del SDK)
         if hasattr(result, "get_transcript"):
             transcript = result.get_transcript()
         else:
