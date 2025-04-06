@@ -1,7 +1,7 @@
 # Voice_AI_Agent
 
 **Description:**  
-This project is a voice assistant that interacts with a database and leverages Natural Language Processing techniques. The main objective is to receive voice commands, extract relevant information (entities and intentions), and then integrate with a database to facilitate lead, client, or business-relevant data management across various domains. You can have several questions, ask about the stored information by saying the lead codename. For more information on how the wizards work please refer to **src/README.md**.
+This project is a voice assistant that interacts with a database and leverages Natural Language Processing techniques. The main objective is to receive voice commands, extract relevant information (entities and intentions), and then integrate with a database to facilitate lead, client, or business-relevant data management across various domains. You can have several questions, ask about the stored information by saying the lead codename. For more information on how the wizards work please refer to [src/README.md](src/README.md) and for various specialized agents consult [src/agent/README.md](src/agent/README.md).
 
 ---
 

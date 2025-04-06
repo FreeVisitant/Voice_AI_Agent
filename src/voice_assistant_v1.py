@@ -28,7 +28,6 @@ set_default_openai_api("chat_completions")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("VoiceAssistant")
 
-# Inicializamos la base de datos
 init_db()
 
 class LeadInfo(TypedDict):
@@ -111,18 +110,28 @@ async def list_all_leads() -> str:
         logger.error("Error al listar los leads: %s", e)
         return f"Error al listar los leads: {e}"
 
+voice_system_prompt = """
+[Output Structure]
+Your output will be delivered in an audio voice response, please ensure that every response meets these guidelines:
+1. Use a friendly, human tone that will sound natural when spoken aloud.
+2. Keep responses short and segmented—ideally one to two concise sentences per step.
+3. Avoid technical jargon; use plain language so that instructions are easy to understand.
+4. Provide only essential details so as not to overwhelm the listener.
+"""
+
 lead_agent = Agent(
     name="LeadAgent",
-    instructions=prompt_with_handoff_instructions("""
-Eres un asistente virtual para calificar y gestionar leads.
-Recopila información y actualiza el CRM usando:
-- 'parse_lead_info' para extraer datos.
-- 'update_crm' para agregar nuevos leads.
-- 'update_lead_in_db' para modificar campos de un lead existente.
-- 'delete_lead' para eliminar un lead por nombre.
-- 'list_all_leads' para consultar los leads guardados.
-Mantén un tono profesional y amigable.
-"""),
+    instructions = voice_system_prompt + prompt_with_handoff_instructions("""
+            You are a virtual assistant for qualifying and managing leads.
+            Gather information and update the data base using:
+            - 'parse_lead_info' to extract data.
+            - 'update_crm' to add new leads.
+            - 'update_lead_in_db' to modify fields of an existing lead.
+            - 'delete_lead' to remove a lead by name.
+            - 'list_all_leads' to list stored leads.
+            Maintain a professional and friendly tone.
+            Always respond in Spanish and slowly.
+            """),
     model="gpt-4o",
     tools=[parse_lead_info, update_crm, update_lead_in_db, delete_lead, list_all_leads],
     output_type=str,
@@ -133,7 +142,6 @@ tts_settings = TTSModelSettings(
     instructions="Personality: amigable y profesional. Tone: claro y empático. Pronunciation: clara y pausada. Tempo: fluido y un poco más lento. Emotion: cálido."
 )
 
-# Función para capturar audio de forma asíncrona 
 async def capture_audio(samplerate: float) -> np.ndarray:
     loop = asyncio.get_running_loop()
     recorded_chunks = []
